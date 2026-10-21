@@ -1,0 +1,25 @@
+Package: stomics
+Type: Package
+Title: R Client SDK for the Stomics.io Spatial Transcriptomics Data Portal
+Version: 0.1.0
+Authors@R: c(
+    person("Stomics.io", email = "support@stomics.io", role = c("aut", "cre", "cph"))
+  )
+Description: Provides functions to search datasets, retrieve metadata, download
+    files, and load spatial transcriptomics data directly into Seurat objects
+    from the Stomics.io data portal. Supports API key authentication and caches
+    downloaded files locally.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
+Imports:
+    httr2 (>= 1.0.0)
+Suggests:
+    Seurat,
+    testthat (>= 3.0.0),
+    withr,
+    webmockr
+Config/testthat/edition: 3
+URL: https://stomics.io/docs/sdk, https://github.com/ITGA3/stomics-r
+BugReports: https://github.com/ITGA3/stomics-r/issues
