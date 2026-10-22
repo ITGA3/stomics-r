@@ -3,7 +3,8 @@ Type: Package
 Title: R Client SDK for the Stomics.io Spatial Transcriptomics Data Portal
 Version: 0.1.0
 Authors@R: c(
-    person("Stomics.io", email = "support@stomics.io", role = c("aut", "cre", "cph"))
+    person("Stomics.io", email = "support@stomics.io", role = c("aut", "cre")),
+    person("The Allman Institute for Personalized Medicine", role = "cph")
   )
 Description: Provides functions to search datasets, retrieve metadata, download
     files, and load spatial transcriptomics data directly into Seurat objects

@@ -35,9 +35,9 @@ client talks to `https://api.stomics.io` unless you pass `base_url`.
 
 ## Support
 
-Report bugs in this repository's issues or write to support@stomics.io. This repository is published
-automatically from the Stomics.io source, so changes are made there rather than by pull request here.
+Report bugs in this repository's issues or write to support@stomics.io. Pull requests are welcome;
+CI must pass, including the 100% test coverage gate.
 
 ## License
 
-MIT. See [LICENSE.md](LICENSE.md).
+MIT. Copyright (c) 2026 The Allman Institute for Personalized Medicine. See [LICENSE.md](LICENSE.md).
