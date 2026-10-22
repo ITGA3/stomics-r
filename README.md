@@ -9,7 +9,7 @@ datasets. Search the catalogue, download files and load datasets into Seurat.
 install.packages("remotes")
 remotes::install_github("ITGA3/stomics-r")
 # a specific release
-remotes::install_github("ITGA3/stomics-r@v0.1.0")
+remotes::install_github("ITGA3/stomics-r@v0.1.1")
 ```
 
 Seurat is optional and needed only for `stomics_load_seurat()`.

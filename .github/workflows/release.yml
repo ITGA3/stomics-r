@@ -1,7 +1,7 @@
 name: Release
 
 # Tags v<version> the first time a version reaches main, so users can pin it:
-#   remotes::install_github("ITGA3/stomics-r@v0.1.0")
+#   remotes::install_github("ITGA3/stomics-r@v0.1.1")
 # Bump `Version:` in DESCRIPTION to cut a release.
 
 on:
