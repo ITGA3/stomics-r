@@ -193,7 +193,8 @@ stomics_get_expression <- function(client, accession, gene, sample_id = NULL) {
     return(data.frame(x = numeric(0), y = numeric(0), expression = numeric(0)))
   }
   do.call(rbind, lapply(spots, function(s) {
-    data.frame(x = s[["x"]], y = s[["y"]], expression = s[["expression"]])
+    # The API names the value `value`; `expression` is this function's column.
+    data.frame(x = s[["x"]], y = s[["y"]], expression = s[["value"]] %||% s[["expression"]])
   }))
 }
 
@@ -803,7 +804,8 @@ stomics_search_by_gene <- function(client, gene,
       data.frame(
         dataset_accession   = r[["dataset_accession"]],
         dataset_title       = r[["dataset_title"]],
-        sample_id           = as.integer(r[["sample_id"]]),
+        # NULL for a dataset-level expression store (a dataset with no samples).
+        sample_id           = if (is.null(r[["sample_id"]])) NA_integer_ else as.integer(r[["sample_id"]]),
         organism            = .str1(r[["organism"]]),
         tissue              = .str1(r[["tissue"]]),
         technology          = .str1(r[["technology"]]),

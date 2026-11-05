@@ -215,7 +215,7 @@ test_that("stomics_get_expression returns a data.frame of spots", {
 
   webmockr::stub_request("get", uri_regex = "https://api.example.com/api/v1/datasets/STD0001/expression.*") |>
     webmockr::to_return(
-      body = '{"spots":[{"x":1,"y":2,"expression":3.5},{"x":3,"y":4,"expression":0.0}]}',
+      body = '{"spots":[{"x":1,"y":2,"value":3.5,"barcode":"a","cell_type":"t"},{"x":3,"y":4,"value":0.0,"barcode":"b","cell_type":"t"}]}',
       headers = list("Content-Type" = "application/json"),
       status = 200
     )
@@ -815,6 +815,34 @@ test_that("stomics_download_aria2c_manifest uses default dest_path", {
 # ---------------------------------------------------------------------------
 # Gene-Centric Cross-Dataset Expression Search (Feature 26)
 # ---------------------------------------------------------------------------
+
+test_that("stomics_search_by_gene maps a null sample_id to NA", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+
+  webmockr::stub_request(
+    "get",
+    uri_regex = "https://api.example.com/api/v1/search/genes.*"
+  ) |>
+    webmockr::to_return(
+      body    = paste0(
+        '{"items":[{"dataset_accession":"STD0003","dataset_title":"Wizard dataset",',
+        '"sample_id":null,"organism":null,"tissue":null,"technology":null,',
+        '"mean_expr":1.5,"pct_spots_expressed":0.4,"max_expr":3.2}],',
+        '"total":1,"page":1,"per_page":20}'
+      ),
+      headers = list("Content-Type" = "application/json"),
+      status  = 200
+    )
+
+  client <- stomics_client(api_key = "sk-key", base_url = "https://api.example.com")
+  result <- stomics_search_by_gene(client, "GAPDH")
+
+  expect_equal(nrow(result$items), 1L)
+  expect_true(is.na(result$items$sample_id))
+  expect_equal(result$items$mean_expr, 1.5)
+})
 
 test_that("stomics_search_by_gene returns items data.frame with correct columns", {
   skip_if_not_installed("webmockr")
