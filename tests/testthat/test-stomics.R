@@ -1047,3 +1047,72 @@ test_that("stomics_gene_autocomplete returns empty data.frame when no suggestion
   expect_equal(nrow(result), 0L)
   expect_equal(colnames(result), c("gene_symbol", "dataset_count"))
 })
+
+
+# ---------------------------------------------------------------------------
+# Expression manifest, metadata fields and the counts layer
+# ---------------------------------------------------------------------------
+
+test_that("stomics_get_expression asks for the counts layer only when told to", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+
+  webmockr::stub_request("get", uri_regex = "https://api.example.com/api/v1/datasets/STD0001/expression\\?gene=GAPDH&layer=counts") |>
+    webmockr::to_return(
+      body = '{"spots":[{"x":1,"y":2,"value":7}]}',
+      headers = list("Content-Type" = "application/json"),
+      status = 200
+    )
+
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  df <- stomics_get_expression(client, "STD0001", gene = "GAPDH", layer = "counts")
+  expect_equal(df$expression, 7)
+})
+
+test_that("stomics_expression_manifest returns the manifest, for a sample too", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+
+  webmockr::stub_request("get", uri_regex = "https://api.example.com/api/v1/datasets/STD0001/expression/manifest.*") |>
+    webmockr::to_return(
+      body = '{"layers":["normalised","counts"],"obs":[{"key":"leiden"}]}',
+      headers = list("Content-Type" = "application/json"),
+      status = 200
+    )
+
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  manifest <- stomics_expression_manifest(client, "STD0001")
+  expect_equal(unlist(manifest$layers), c("normalised", "counts"))
+  expect_equal(manifest$obs[[1]]$key, "leiden")
+  expect_type(stomics_expression_manifest(client, "STD0001", sample_id = 4), "list")
+})
+
+test_that("stomics_get_obs returns categorical and numeric fields", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+
+  webmockr::stub_request("get", uri_regex = "https://api.example.com/api/v1/datasets/STD0001/expression/obs\\?key=leiden$") |>
+    webmockr::to_return(
+      body = '{"field":{"kind":"categorical"},"barcodes":["a","b"],"values":["0","1"]}',
+      headers = list("Content-Type" = "application/json"),
+      status = 200
+    )
+  webmockr::stub_request("get", uri_regex = "https://api.example.com/api/v1/datasets/STD0001/expression/obs\\?key=qc%3An_counts&sample_id=4") |>
+    webmockr::to_return(
+      body = '{"field":{"kind":"numeric"},"barcodes":["a","b"],"values":[1.5,null]}',
+      headers = list("Content-Type" = "application/json"),
+      status = 200
+    )
+
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  clusters <- stomics_get_obs(client, "STD0001", "leiden")
+  expect_equal(names(clusters), c("barcode", "leiden"))
+  expect_equal(clusters$leiden, c("0", "1"))
+
+  totals <- stomics_get_obs(client, "STD0001", "qc:n_counts", sample_id = 4)
+  expect_equal(totals[["qc:n_counts"]][1], 1.5)
+  expect_true(is.na(totals[["qc:n_counts"]][2]))
+})
