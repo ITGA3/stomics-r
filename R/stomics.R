@@ -171,6 +171,9 @@ stomics_download_file <- function(client, accession, file_id, dest_path) {
 #' @param accession Dataset accession number.
 #' @param gene Gene symbol, e.g. `"BRCA1"`.
 #' @param sample_id Sample ID to restrict results to (optional).
+#' @param layer `"normalised"` (the default) or `"counts"`: raw integer counts,
+#'   for datasets whose [stomics_expression_manifest()] lists that layer.
+#'   Other datasets answer 409.
 #'
 #' @return A `data.frame` with columns `x`, `y`, and `expression` (one row per
 #'   spot).
@@ -180,12 +183,15 @@ stomics_download_file <- function(client, accession, file_id, dest_path) {
 #' \dontrun{
 #' client <- stomics_client()
 #' df <- stomics_get_expression(client, "STD0001", gene = "BRCA1")
+#' counts <- stomics_get_expression(client, "STD0001", gene = "BRCA1", layer = "counts")
 #' head(df)
 #' }
-stomics_get_expression <- function(client, accession, gene, sample_id = NULL) {
+stomics_get_expression <- function(client, accession, gene, sample_id = NULL,
+                                   layer = "normalised") {
   req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/expression"))
   params <- list(gene = gene)
   if (!is.null(sample_id)) params[["sample_id"]] <- sample_id
+  if (!identical(layer, "normalised")) params[["layer"]] <- layer
   req <- do.call(httr2::req_url_query, c(list(req), params))
   data <- .stomics_perform(req)
   spots <- data[["spots"]]
@@ -196,6 +202,69 @@ stomics_get_expression <- function(client, accession, gene, sample_id = NULL) {
     # The API names the value `value`; `expression` is this function's column.
     data.frame(x = s[["x"]], y = s[["y"]], expression = s[["value"]] %||% s[["expression"]])
   }))
+}
+
+
+#' What a dataset's processed expression holds
+#'
+#' @param client A `stomics_client` object.
+#' @param accession Dataset accession number.
+#' @param sample_id Sample ID (optional).
+#'
+#' @return A list: `layers` (`"normalised"`, plus `"counts"` when the submitted
+#'   matrix was raw counts), `transform`, `n_spots`, `n_genes`, `obs` (one
+#'   entry per per-spot metadata field, each with `key`, `name`, `kind`
+#'   categorical or numeric, `source` submitted or qc), `label_columns` and
+#'   `embeddings`. Pass any `obs` key to [stomics_get_obs()].
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' manifest <- stomics_expression_manifest(client, "STD0001")
+#' vapply(manifest$obs, function(f) f$key, character(1))
+#' }
+stomics_expression_manifest <- function(client, accession, sample_id = NULL) {
+  req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/expression/manifest"))
+  if (!is.null(sample_id)) req <- httr2::req_url_query(req, sample_id = sample_id)
+  .stomics_perform(req)
+}
+
+
+#' Every spot's value of one metadata field
+#'
+#' @param client A `stomics_client` object.
+#' @param accession Dataset accession number.
+#' @param key A field key from [stomics_expression_manifest()]: a submitted
+#'   obs column such as `"leiden"`, or computed QC (`"qc:n_genes"`,
+#'   `"qc:n_counts"`, `"qc:pct_mt"`, `"qc:pct_ribo"`).
+#' @param sample_id Sample ID (optional).
+#'
+#' @return A `data.frame` with `barcode` and a column named `key`: character
+#'   for categorical fields, numeric (`NA` where a spot has no value) for
+#'   numeric ones.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' clusters <- stomics_get_obs(client, "STD0001", "leiden")
+#' }
+stomics_get_obs <- function(client, accession, key, sample_id = NULL) {
+  req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/expression/obs"))
+  params <- list(key = key)
+  if (!is.null(sample_id)) params[["sample_id"]] <- sample_id
+  req <- do.call(httr2::req_url_query, c(list(req), params))
+  data <- .stomics_perform(req)
+  numeric <- identical(data[["field"]][["kind"]], "numeric")
+  values <- vapply(
+    data[["values"]],
+    function(v) if (is.null(v)) NA_character_ else as.character(v),
+    character(1)
+  )
+  out <- data.frame(barcode = as.character(unlist(data[["barcodes"]])), stringsAsFactors = FALSE)
+  out[[key]] <- if (numeric) as.numeric(values) else values
+  out
 }
 
 

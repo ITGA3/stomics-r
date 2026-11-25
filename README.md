@@ -22,6 +22,11 @@ library(stomics)
 client <- stomics_client()  # reads STOMICS_API_KEY; public data needs no key
 results <- stomics_search(client, organism = "Homo sapiens")
 seurat_obj <- stomics_load_seurat(client, "STD0100")
+
+# What the processed expression holds, then any per-spot field and raw counts
+manifest <- stomics_expression_manifest(client, "STD0100")
+clusters <- stomics_get_obs(client, "STD0100", "leiden")
+counts <- stomics_get_expression(client, "STD0100", gene = "GAPDH", layer = "counts")
 ```
 
 Create an API key at <https://stomics.io/account/api-keys> for anything tied to your account. The
