@@ -117,8 +117,18 @@ stomics_get_dataset <- function(client, accession) {
 
 #' List files for a dataset
 #'
+#' Without filters this returns every file. With any of `q`, `file_types` or
+#' `sample_id` it walks the API's paged file listing and returns the files
+#' matching all of them.
+#'
 #' @param client A `stomics_client` object.
 #' @param accession Dataset accession number.
+#' @param q Only files whose name contains this, ignoring case, e.g. a GEO
+#'   sample accession such as `"GSM5"` (optional).
+#' @param file_types Only these types, e.g. `c("expression_matrix",
+#'   "tissue_image")` (optional).
+#' @param sample_id Only the files of this sample (optional).
+#' @param version Files from a specific version snapshot (optional).
 #'
 #' @return A list of file records. Each record includes a `download_url` field
 #'   containing a pre-signed S3 URL valid for 1 hour.
@@ -128,10 +138,80 @@ stomics_get_dataset <- function(client, accession) {
 #' \dontrun{
 #' client <- stomics_client()
 #' files <- stomics_list_files(client, "STD0001")
+#' matrices <- stomics_list_files(client, "STD0716", q = "GSM5",
+#'                                file_types = "expression_matrix")
 #' }
-stomics_list_files <- function(client, accession) {
-  req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/files"))
-  .stomics_perform(req)
+stomics_list_files <- function(client, accession, q = NULL, file_types = NULL,
+                               sample_id = NULL, version = NULL) {
+  if (is.null(q) && is.null(file_types) && is.null(sample_id)) {
+    req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/files"))
+    if (!is.null(version)) req <- httr2::req_url_query(req, version = version)
+    return(.stomics_perform(req))
+  }
+  .stomics_file_pages(client, accession, q, file_types, sample_id, version)
+}
+
+# Internal: every file matching the filters, from the paged listing
+.stomics_file_pages <- function(client, accession, q = NULL, file_types = NULL,
+                                sample_id = NULL, version = NULL) {
+  files <- list()
+  page <- 1L
+  repeat {
+    req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/files/page"))
+    req <- httr2::req_url_query(req, page = page, per_page = 200L, q = q,
+                                sample_id = sample_id, version = version)
+    if (!is.null(file_types)) {
+      req <- httr2::req_url_query(req, .multi = "explode", file_type = as.character(file_types))
+    }
+    data <- .stomics_perform(req)
+    files <- c(files, data[["items"]])
+    if (page * data[["per_page"]] >= data[["total"]]) break
+    page <- page + 1L
+  }
+  files
+}
+
+
+#' Download every file of a dataset into a directory
+#'
+#' Downloads each file, or each matching the filters, one at a time. This is
+#' the route for datasets too large for a ZIP bundle (over 100 GB). A file
+#' already on disk at its full size is skipped, so an interrupted run can be
+#' started again; each file gets a fresh download link just before it starts.
+#' A file interrupted part-way is downloaded again from the start.
+#'
+#' @inheritParams stomics_list_files
+#' @param dest_dir Directory to write into; created if missing.
+#'
+#' @return The paths of every file, invisibly.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' stomics_download_dataset(client, "STD0716", "STD0716",
+#'                          file_types = "expression_matrix")
+#' }
+stomics_download_dataset <- function(client, accession, dest_dir, file_types = NULL,
+                                     q = NULL, sample_id = NULL) {
+  if (!dir.exists(dest_dir)) dir.create(dest_dir, recursive = TRUE)
+  files <- .stomics_file_pages(client, accession, q, file_types, sample_id)
+  seen <- character()
+  paths <- character()
+  for (f in files) {
+    name <- f[["filename"]]
+    # Two samples can carry files of the same name; keep both.
+    if (name %in% seen) name <- paste0(f[["id"]], "_", name)
+    seen <- c(seen, name)
+    path <- file.path(dest_dir, name)
+    paths <- c(paths, path)
+    size <- f[["size_bytes"]]
+    if (!is.null(size) && file.exists(path) && file.size(path) == size) next
+    part <- paste0(path, ".part")
+    stomics_download_file(client, accession, f[["id"]], part)
+    file.rename(part, path)
+  }
+  invisible(paths)
 }
 
 
@@ -686,7 +766,7 @@ stomics_download_aria2c_manifest <- function(client, accession,
   req  <- .stomics_req(client, path)
   if (!is.null(file_types)) {
     req <- httr2::req_url_query(req, .multi = "explode",
-                                file_types = as.list(file_types))
+                                file_types = as.character(file_types))
   }
   resp <- httr2::req_perform(req)
   content <- httr2::resp_body_string(resp)

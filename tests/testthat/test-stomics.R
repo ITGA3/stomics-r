@@ -170,6 +170,73 @@ test_that("stomics_list_files returns file list with download_url", {
   expect_equal(files[[1]]$download_url, "https://s3.example.com/matrix.h5ad")
 })
 
+.file_json <- function(id, name, size = 3) {
+  sprintf('{"id":%d,"dataset_id":1,"filename":"%s","file_type":"expression_matrix","upload_status":"complete","created_at":"2025-01-01T00:00:00Z","size_bytes":%d}',
+          id, name, size)
+}
+
+.page_json <- function(items, total, page, per_page = 200) {
+  sprintf('{"items":[%s],"total":%d,"page":%d,"per_page":%d,"total_bytes":0,"type_counts":{},"bundle_max_bytes":107374182400}',
+          paste(items, collapse = ","), total, page, per_page)
+}
+
+test_that("stomics_list_files with filters walks the paged listing", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+
+  base <- "https://api.example.com/api/v1/datasets/STD0001/files/page"
+  webmockr::stub_request("get", uri_regex = paste0(base, "\\?page=1&.*q=GSM1.*file_type=expression_matrix&file_type=image")) |>
+    webmockr::to_return(body = .page_json(.file_json(1, "GSM1_a.h5"), 2, 1, 1),
+                        headers = list("Content-Type" = "application/json"), status = 200)
+  webmockr::stub_request("get", uri_regex = paste0(base, "\\?page=2&.*q=GSM1")) |>
+    webmockr::to_return(body = .page_json(.file_json(2, "GSM1_b.h5"), 2, 2, 1),
+                        headers = list("Content-Type" = "application/json"), status = 200)
+
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  files <- stomics_list_files(client, "STD0001", q = "GSM1",
+                              file_types = c("expression_matrix", "image"))
+  expect_equal(vapply(files, function(f) f$filename, ""), c("GSM1_a.h5", "GSM1_b.h5"))
+})
+
+test_that("stomics_list_files passes a version to the unpaged listing", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/datasets/STD0001/files?version=2") |>
+    webmockr::to_return(body = "[]", headers = list("Content-Type" = "application/json"), status = 200)
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  expect_equal(length(stomics_list_files(client, "STD0001", version = 2)), 0)
+})
+
+test_that("stomics_download_dataset skips complete files and keeps clashing names apart", {
+  skip_if_not_installed("webmockr")
+  skip_if_not_installed("mockery")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+
+  items <- c(.file_json(1, "done.csv", 3), .file_json(2, "new.csv", 3), .file_json(3, "new.csv", 3))
+  webmockr::stub_request("get", uri_regex = "https://api.example.com/api/v1/datasets/STD0001/files/page.*") |>
+    webmockr::to_return(body = .page_json(items, 3, 1),
+                        headers = list("Content-Type" = "application/json"), status = 200)
+
+  dest <- withr::local_tempdir()
+  writeBin(charToRaw("abc"), file.path(dest, "done.csv"))
+  fetched <- c()
+  mockery::stub(stomics_download_dataset, "stomics_download_file",
+                function(client, accession, file_id, dest_path) {
+                  fetched <<- c(fetched, file_id)
+                  writeBin(charToRaw("xyz"), dest_path)
+                })
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  paths <- stomics_download_dataset(client, "STD0001", dest, q = "csv")
+
+  expect_equal(basename(paths), c("done.csv", "new.csv", "3_new.csv"))
+  expect_equal(fetched, c(2, 3))
+  expect_false(file.exists(file.path(dest, "new.csv.part")))
+  expect_equal(readBin(file.path(dest, "3_new.csv"), "raw", 3), charToRaw("xyz"))
+})
+
 # ---------------------------------------------------------------------------
 # stomics_download_file — mocked
 # ---------------------------------------------------------------------------
@@ -1115,4 +1182,16 @@ test_that("stomics_get_obs returns categorical and numeric fields", {
   totals <- stomics_get_obs(client, "STD0001", "qc:n_counts", sample_id = 4)
   expect_equal(totals[["qc:n_counts"]][1], 1.5)
   expect_true(is.na(totals[["qc:n_counts"]][2]))
+})
+
+test_that("stomics_download_aria2c_manifest repeats file_types in the query", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/datasets/STD0001/aria2c-manifest?file_types=expression_matrix&file_types=image") |>
+    webmockr::to_return(body = "https://s3/a\n", status = 200)
+  dest <- withr::local_tempfile(fileext = ".txt")
+  client <- stomics_client(base_url = "https://api.example.com")
+  stomics_download_aria2c_manifest(client, "STD0001", dest, file_types = c("expression_matrix", "image"))
+  expect_equal(readLines(dest)[1], "https://s3/a")
 })
