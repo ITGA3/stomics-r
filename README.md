@@ -27,6 +27,10 @@ seurat_obj <- stomics_load_seurat(client, "STD0100")
 manifest <- stomics_expression_manifest(client, "STD0100")
 clusters <- stomics_get_obs(client, "STD0100", "leiden")
 counts <- stomics_get_expression(client, "STD0100", gene = "GAPDH", layer = "counts")
+
+# Files: filter by name, type or sample, or download them all (complete files are skipped on a rerun)
+matrices <- stomics_list_files(client, "STD0716", q = "GSM5", file_types = "expression_matrix")
+stomics_download_dataset(client, "STD0716", "STD0716")
 ```
 
 Create an API key at <https://stomics.io/account/api-keys> for anything tied to your account. The
