@@ -1195,3 +1195,52 @@ test_that("stomics_download_aria2c_manifest repeats file_types in the query", {
   stomics_download_aria2c_manifest(client, "STD0001", dest, file_types = c("expression_matrix", "image"))
   expect_equal(readLines(dest)[1], "https://s3/a")
 })
+
+
+test_that("the standard pipeline's state, markers, dot plot and spatial genes", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  base <- "https://api.example.com/api/v1/datasets/STD0001/analysis/standard"
+
+  webmockr::stub_request("get", base) |>
+    webmockr::to_return(body = '{"status":"not_run"}', headers = list("Content-Type" = "application/json"), status = 200)
+  webmockr::stub_request("get", paste0(base, "?sample_id=4")) |>
+    webmockr::to_return(body = '{"status":"ready","resolutions":[1.0]}', headers = list("Content-Type" = "application/json"), status = 200)
+  webmockr::stub_request("get", uri_regex = paste0(base, "/markers\\?sample_id=4&resolution=0.6&cluster=0&limit=5$")) |>
+    webmockr::to_return(
+      body = '{"markers":[{"cluster":"0","rank":1,"gene":"Gfap","score":9,"log_fold_change":2,"pval_adj":0.001,"pct_in":0.9,"pct_out":0.1}]}',
+      headers = list("Content-Type" = "application/json"), status = 200
+    )
+  webmockr::stub_request("get", uri_regex = paste0(base, "/markers\\?resolution=1&limit=10$")) |>
+    webmockr::to_return(body = '{"markers":[]}', headers = list("Content-Type" = "application/json"), status = 200)
+  webmockr::stub_request("get", uri_regex = paste0(base, "/dotplot\\?resolution=1$")) |>
+    webmockr::to_return(
+      body = '{"genes":["Gfap","Mbp"],"clusters":["0","1"],"mean":[[2,0.1],[0,1.5]],"fraction":[[0.9,0.2],[0,0.8]]}',
+      headers = list("Content-Type" = "application/json"), status = 200
+    )
+  webmockr::stub_request("get", uri_regex = paste0(base, "/spatially-variable\\?sample_id=4&limit=20&offset=0$")) |>
+    webmockr::to_return(
+      body = '{"genes":[{"gene":"Pcp4","rank":1,"moran_i":0.7,"pval_adj":1e-9}]}',
+      headers = list("Content-Type" = "application/json"), status = 200
+    )
+
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  expect_equal(stomics_get_standard_analysis(client, "STD0001")$status, "not_run")
+  expect_equal(stomics_get_standard_analysis(client, "STD0001", sample_id = 4)$status, "ready")
+
+  markers <- stomics_get_markers(client, "STD0001", sample_id = 4, resolution = 0.6, cluster = "0", limit = 5)
+  expect_equal(markers$gene, "Gfap")
+  expect_equal(markers$pct_in, 0.9)
+  none <- stomics_get_markers(client, "STD0001")
+  expect_equal(nrow(none), 0)
+  expect_true("gene" %in% names(none))
+
+  dp <- stomics_get_dotplot(client, "STD0001")
+  expect_equal(dp$mean["Mbp", "1"], 1.5)
+  expect_equal(dp$fraction["Gfap", "0"], 0.9)
+
+  svgs <- stomics_get_spatially_variable_genes(client, "STD0001", sample_id = 4, limit = 20)
+  expect_equal(svgs$gene, "Pcp4")
+  expect_equal(svgs$moran_i, 0.7)
+})

@@ -311,6 +311,137 @@ stomics_expression_manifest <- function(client, accession, sample_id = NULL) {
 }
 
 
+#' The standard analysis pipeline's state for a sample
+#'
+#' Every sample with expression data is analysed by the stomics.io standard
+#' pipeline: QC flags, Leiden clusters at four resolutions, a UMAP, marker
+#' genes and Moran's I for every gene.
+#'
+#' @param client A `stomics_client` object.
+#' @param accession Dataset accession number.
+#' @param sample_id Sample ID (optional).
+#'
+#' @return A list: `status` (`"ready"`, `"not_run"`, `"pending"`, `"running"`,
+#'   `"failed"` or `"unsupported"`, with `error`) and, when ready,
+#'   `provenance`, `resolutions` and `n_clusters`. The clusters are also obs
+#'   fields (`"standard:leiden_1.0"`, ...) for [stomics_get_obs()].
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' run <- stomics_get_standard_analysis(client, "STD0001", sample_id = 12)
+#' run$status
+#' }
+stomics_get_standard_analysis <- function(client, accession, sample_id = NULL) {
+  .stomics_analysis(client, accession, "", list(sample_id = sample_id))
+}
+
+
+#' Marker genes of the standard pipeline's clusters
+#'
+#' Wilcoxon rank-sum, each cluster against all other spots.
+#'
+#' @inheritParams stomics_get_standard_analysis
+#' @param resolution Leiden resolution: 0.3, 0.6, 1.0 or 1.5.
+#' @param cluster One cluster's markers only (optional).
+#' @param limit Genes per cluster, at most 100.
+#'
+#' @return A `data.frame` with `cluster`, `rank`, `gene`, `score`,
+#'   `log_fold_change`, `pval_adj`, `pct_in` and `pct_out`.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' markers <- stomics_get_markers(client, "STD0001", sample_id = 12, resolution = 0.6)
+#' }
+stomics_get_markers <- function(client, accession, sample_id = NULL, resolution = 1.0,
+                                cluster = NULL, limit = 10) {
+  data <- .stomics_analysis(
+    client, accession, "/markers",
+    list(sample_id = sample_id, resolution = resolution, cluster = cluster, limit = limit)
+  )
+  .stomics_rows(data[["markers"]], c(
+    "cluster", "rank", "gene", "score", "log_fold_change", "pval_adj", "pct_in", "pct_out"
+  ))
+}
+
+
+#' The top marker genes of every cluster as a dot plot
+#'
+#' @inheritParams stomics_get_markers
+#'
+#' @return A list of two genes x clusters matrices: `mean` (normalised
+#'   expression) and `fraction` (share of spots expressing).
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' dp <- stomics_get_dotplot(client, "STD0001", sample_id = 12)
+#' dp$mean["Gfap", ]
+#' }
+stomics_get_dotplot <- function(client, accession, sample_id = NULL, resolution = 1.0) {
+  data <- .stomics_analysis(
+    client, accession, "/dotplot", list(sample_id = sample_id, resolution = resolution)
+  )
+  genes <- as.character(unlist(data[["genes"]]))
+  clusters <- as.character(unlist(data[["clusters"]]))
+  as_matrix <- function(rows) {
+    m <- matrix(as.numeric(unlist(rows)), nrow = length(genes), ncol = length(clusters), byrow = TRUE)
+    dimnames(m) <- list(genes, clusters)
+    m
+  }
+  list(mean = as_matrix(data[["mean"]]), fraction = as_matrix(data[["fraction"]]))
+}
+
+
+#' Genes ranked by Moran's I, precomputed on every spot
+#'
+#' The standard pipeline computes Moran's I for every gene over every spot,
+#' with no subsample. For an on-demand run with other parameters, see
+#' [stomics_spatially_variable_genes()].
+#'
+#' @inheritParams stomics_get_standard_analysis
+#' @param limit,offset A page of genes, best first.
+#'
+#' @return A `data.frame` with `gene`, `rank`, `moran_i` and `pval_adj`.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' svgs <- stomics_get_spatially_variable_genes(client, "STD0001", sample_id = 12)
+#' }
+stomics_get_spatially_variable_genes <- function(client, accession, sample_id = NULL,
+                                                 limit = 50, offset = 0) {
+  data <- .stomics_analysis(
+    client, accession, "/spatially-variable",
+    list(sample_id = sample_id, limit = limit, offset = offset)
+  )
+  .stomics_rows(data[["genes"]], c("gene", "rank", "moran_i", "pval_adj"))
+}
+
+
+# Internal: GET a standard pipeline endpoint, dropping NULL parameters.
+.stomics_analysis <- function(client, accession, path, params) {
+  req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/analysis/standard", path))
+  params <- Filter(Negate(is.null), params)
+  if (length(params) > 0) req <- do.call(httr2::req_url_query, c(list(req), params))
+  .stomics_perform(req)
+}
+
+
+# Internal: a list of JSON objects as a data.frame with the given columns.
+.stomics_rows <- function(rows, columns) {
+  out <- lapply(columns, function(col) unlist(lapply(rows, function(r) r[[col]])))
+  names(out) <- columns
+  if (length(rows) == 0) out <- lapply(out, function(x) logical(0))
+  as.data.frame(out, stringsAsFactors = FALSE)
+}
+
+
 #' Every spot's value of one metadata field
 #'
 #' @param client A `stomics_client` object.
