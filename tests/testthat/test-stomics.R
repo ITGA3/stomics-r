@@ -1245,3 +1245,26 @@ test_that("the standard pipeline's state, markers, dot plot and spatial genes", 
   expect_equal(svgs$moran_i, 0.7)
   expect_equal(svgs$sparkx_rank, 1)
 })
+
+
+test_that("stomics_download_h5ad follows the presigned link to a file", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/datasets/STD0001/analysis/standard/h5ad?sample_id=4") |>
+    webmockr::to_return(
+      body = '{"url":"https://s3.example.com/sample.h5ad","filename":"STD0001_sample_4.h5ad"}',
+      headers = list("Content-Type" = "application/json"), status = 200
+    )
+  skip_if_not_installed("mockery")
+  fetched <- NULL
+  mockery::stub(stomics_download_h5ad, "download.file", function(url, destfile, mode, quiet) {
+    fetched <<- url
+    writeLines("HDF", destfile)
+  })
+  dest <- withr::local_tempfile(fileext = ".h5ad")
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  expect_equal(stomics_download_h5ad(client, "STD0001", dest, sample_id = 4), dest)
+  expect_equal(fetched, "https://s3.example.com/sample.h5ad")
+  expect_true(file.exists(dest))
+})

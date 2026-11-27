@@ -428,6 +428,34 @@ stomics_get_spatially_variable_genes <- function(client, accession, sample_id = 
 }
 
 
+#' Download one sample as an .h5ad
+#'
+#' Raw counts in `X` (values as submitted when they were not counts), a
+#' `log1p_cp10k` layer, every submitted and QC column plus the standard
+#' pipeline's clusters in `obs`, positions in `obsm$spatial` with every
+#' embedding, spatially variable gene statistics in `var` and provenance in
+#' `uns$stomics`. Read it with `zellkonverter::readH5AD()` (a
+#' `SingleCellExperiment`) or `anndata::read_h5ad()`.
+#'
+#' @inheritParams stomics_get_standard_analysis
+#' @param dest Path to write the file to.
+#'
+#' @return `dest`, invisibly.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' path <- stomics_download_h5ad(client, "STD0001", "STD0001_12.h5ad", sample_id = 12)
+#' sce <- zellkonverter::readH5AD(path)
+#' }
+stomics_download_h5ad <- function(client, accession, dest, sample_id = NULL) {
+  data <- .stomics_analysis(client, accession, "/h5ad", list(sample_id = sample_id))
+  download.file(data[["url"]], destfile = dest, mode = "wb", quiet = TRUE)
+  invisible(dest)
+}
+
+
 # Internal: GET a standard pipeline endpoint, dropping NULL parameters.
 .stomics_analysis <- function(client, accession, path, params) {
   req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/analysis/standard", path))
