@@ -428,6 +428,19 @@ stomics_get_spatially_variable_genes <- function(client, accession, sample_id = 
 }
 
 
+#' What stomics.io holds
+#'
+#' @param client A `stomics_client` object.
+#'
+#' @return A list: published `datasets`, `samples`, `spots`, samples with
+#'   expression and analysed, distinct `technologies`, `organisms` and
+#'   `tissues`, and `growth` (datasets published per month).
+#' @export
+stomics_portal_stats <- function(client) {
+  .stomics_perform(.stomics_req(client, "/api/v1/stats/portal"))
+}
+
+
 #' Which labels sit together
 #'
 #' Neighbourhood enrichment, co-occurrence and Ripley's L of one labelled layer.

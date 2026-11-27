@@ -1300,3 +1300,14 @@ test_that("stomics_get_spatial_stats", {
   expect_equal(stomics_get_spatial_stats(client, "STD0001", sample_id = 4, layer = "cell_type")$layer, "cell_type")
   expect_equal(stomics_get_spatial_stats(client, "STD0001")$layer, "x")
 })
+
+
+test_that("stomics_portal_stats", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/stats/portal") |>
+    webmockr::to_return(body = '{"datasets":549}', headers = list("Content-Type" = "application/json"), status = 200)
+  client <- stomics_client(base_url = "https://api.example.com")
+  expect_equal(stomics_portal_stats(client)$datasets, 549)
+})
