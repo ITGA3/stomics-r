@@ -26,6 +26,14 @@ seurat_obj <- stomics_load_seurat(client, "STD0100")
 # What the processed expression holds, then any per-spot field and raw counts
 manifest <- stomics_expression_manifest(client, "STD0100")
 clusters <- stomics_get_obs(client, "STD0100", "leiden")
+
+# Clusters, markers and spatially variable genes from the stomics.io standard pipeline
+run <- stomics_get_standard_analysis(client, "STD0100", sample_id = 12)
+leiden <- stomics_get_obs(client, "STD0100", "standard:leiden_1.0", sample_id = 12)
+markers <- stomics_get_markers(client, "STD0100", sample_id = 12, resolution = 1.0)
+dp <- stomics_get_dotplot(client, "STD0100", sample_id = 12)
+svgs <- stomics_get_spatially_variable_genes(client, "STD0100", sample_id = 12)
+path <- stomics_download_h5ad(client, "STD0100", "STD0100_12.h5ad", sample_id = 12)
 counts <- stomics_get_expression(client, "STD0100", gene = "GAPDH", layer = "counts")
 
 # Files: filter by name, type or sample, or download them all (complete files are skipped on a rerun)

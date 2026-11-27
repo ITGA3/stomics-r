@@ -311,6 +311,239 @@ stomics_expression_manifest <- function(client, accession, sample_id = NULL) {
 }
 
 
+#' The standard analysis pipeline's state for a sample
+#'
+#' Every sample with expression data is analysed by the stomics.io standard
+#' pipeline: QC flags, Leiden clusters at four resolutions, a UMAP, marker
+#' genes and Moran's I for every gene.
+#'
+#' @param client A `stomics_client` object.
+#' @param accession Dataset accession number.
+#' @param sample_id Sample ID (optional).
+#'
+#' @return A list: `status` (`"ready"`, `"not_run"`, `"pending"`, `"running"`,
+#'   `"failed"` or `"unsupported"`, with `error`) and, when ready,
+#'   `provenance`, `resolutions` and `n_clusters`. The clusters are also obs
+#'   fields (`"standard:leiden_1.0"`, ...) for [stomics_get_obs()].
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' run <- stomics_get_standard_analysis(client, "STD0001", sample_id = 12)
+#' run$status
+#' }
+stomics_get_standard_analysis <- function(client, accession, sample_id = NULL) {
+  .stomics_analysis(client, accession, "", list(sample_id = sample_id))
+}
+
+
+#' Marker genes of the standard pipeline's clusters
+#'
+#' Wilcoxon rank-sum, each cluster against all other spots.
+#'
+#' @inheritParams stomics_get_standard_analysis
+#' @param resolution Leiden resolution: 0.3, 0.6, 1.0 or 1.5.
+#' @param cluster One cluster's markers only (optional).
+#' @param limit Genes per cluster, at most 100.
+#'
+#' @return A `data.frame` with `cluster`, `rank`, `gene`, `score`,
+#'   `log_fold_change`, `pval_adj`, `pct_in` and `pct_out`.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' markers <- stomics_get_markers(client, "STD0001", sample_id = 12, resolution = 0.6)
+#' }
+stomics_get_markers <- function(client, accession, sample_id = NULL, resolution = 1.0,
+                                cluster = NULL, limit = 10) {
+  data <- .stomics_analysis(
+    client, accession, "/markers",
+    list(sample_id = sample_id, resolution = resolution, cluster = cluster, limit = limit)
+  )
+  .stomics_rows(data[["markers"]], c(
+    "cluster", "rank", "gene", "score", "log_fold_change", "pval_adj", "pct_in", "pct_out"
+  ))
+}
+
+
+#' The top marker genes of every cluster as a dot plot
+#'
+#' @inheritParams stomics_get_markers
+#'
+#' @return A list of two genes x clusters matrices: `mean` (normalised
+#'   expression) and `fraction` (share of spots expressing).
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' dp <- stomics_get_dotplot(client, "STD0001", sample_id = 12)
+#' dp$mean["Gfap", ]
+#' }
+stomics_get_dotplot <- function(client, accession, sample_id = NULL, resolution = 1.0) {
+  data <- .stomics_analysis(
+    client, accession, "/dotplot", list(sample_id = sample_id, resolution = resolution)
+  )
+  genes <- as.character(unlist(data[["genes"]]))
+  clusters <- as.character(unlist(data[["clusters"]]))
+  as_matrix <- function(rows) {
+    m <- matrix(as.numeric(unlist(rows)), nrow = length(genes), ncol = length(clusters), byrow = TRUE)
+    dimnames(m) <- list(genes, clusters)
+    m
+  }
+  list(mean = as_matrix(data[["mean"]]), fraction = as_matrix(data[["fraction"]]))
+}
+
+
+#' Spatially variable genes by Moran's I and SPARK-X, on every spot
+#'
+#' The standard pipeline computes Moran's I and SPARK-X for every gene over
+#' every spot. [stomics_spatially_variable_genes()] returns the top genes by
+#' Moran's I alone.
+#'
+#' @inheritParams stomics_get_standard_analysis
+#' @param rank_by `"consensus"` (the mean of the two ranks), `"moran"` or
+#'   `"sparkx"`.
+#' @param limit,offset A page of genes, best first.
+#'
+#' @return A `data.frame` with `gene`, `rank` (consensus), `moran_i`,
+#'   `moran_rank`, `sparkx_rank` and `pval_adj` (SPARK-X's Benjamini-Hochberg
+#'   FDR).
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' svgs <- stomics_get_spatially_variable_genes(client, "STD0001", sample_id = 12)
+#' }
+stomics_get_spatially_variable_genes <- function(client, accession, sample_id = NULL,
+                                                 rank_by = "consensus", limit = 50, offset = 0) {
+  data <- .stomics_analysis(
+    client, accession, "/spatially-variable",
+    list(sample_id = sample_id, rank_by = rank_by, limit = limit, offset = offset)
+  )
+  .stomics_rows(data[["genes"]], c("gene", "rank", "moran_i", "moran_rank", "sparkx_rank", "pval_adj"))
+}
+
+
+#' What stomics.io holds
+#'
+#' @param client A `stomics_client` object.
+#'
+#' @return A list: published `datasets`, `samples`, `spots`, samples with
+#'   expression and analysed, distinct `technologies`, `organisms` and
+#'   `tissues`, and `growth` (datasets published per month).
+#' @export
+stomics_portal_stats <- function(client) {
+  .stomics_perform(.stomics_req(client, "/api/v1/stats/portal"))
+}
+
+
+#' Which labels sit together
+#'
+#' Neighbourhood enrichment, co-occurrence and Ripley's L of one labelled layer.
+#'
+#' @inheritParams stomics_get_standard_analysis
+#' @param layer The layer's key (optional; the first otherwise).
+#'
+#' @return A list: `labels`, `zscore` and `counts` (labels x labels),
+#'   `distances`, `cooccurrence[[a]][[b]]` (one value per distance) and
+#'   `ripley[[label]]`; `layers` lists every analysed layer.
+#' @export
+stomics_get_spatial_stats <- function(client, accession, sample_id = NULL, layer = NULL) {
+  req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/analysis/spatial-stats"))
+  params <- Filter(Negate(is.null), list(sample_id = sample_id, layer = layer))
+  if (length(params) > 0) req <- do.call(httr2::req_url_query, c(list(req), params))
+  .stomics_perform(req)
+}
+
+
+#' Download one sample as an .h5ad
+#'
+#' Raw counts in `X` (values as submitted when they were not counts), a
+#' `log1p_cp10k` layer, every submitted and QC column plus the standard
+#' pipeline's clusters in `obs`, positions in `obsm$spatial` with every
+#' embedding, spatially variable gene statistics in `var` and provenance in
+#' `uns$stomics`. Read it with `zellkonverter::readH5AD()` (a
+#' `SingleCellExperiment`) or `anndata::read_h5ad()`.
+#'
+#' @inheritParams stomics_get_standard_analysis
+#' @param dest Path to write the file to.
+#'
+#' @return `dest`, invisibly.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client()
+#' path <- stomics_download_h5ad(client, "STD0001", "STD0001_12.h5ad", sample_id = 12)
+#' sce <- zellkonverter::readH5AD(path)
+#' }
+stomics_download_h5ad <- function(client, accession, dest, sample_id = NULL) {
+  data <- .stomics_analysis(client, accession, "/h5ad", list(sample_id = sample_id))
+  download.file(data[["url"]], destfile = dest, mode = "wb", quiet = TRUE)
+  invisible(dest)
+}
+
+
+#' Save a view of the spatial viewer
+#'
+#' A short link and an embed for a viewer state. Requires an API key.
+#'
+#' @param client A `stomics_client` object.
+#' @param accession Dataset accession number.
+#' @param state The viewer's state (version 1): a list with `g` genes (up to
+#'   four) and optionally `s` sample id, `c` colour mode, `m` metadata field,
+#'   `p` palette, `sc` colour range and `z` zoom.
+#' @param sample_id,title Optional.
+#'
+#' @return The saved view, as a list with `slug`, `url` and `embed_url`.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client(api_key = "sk-...")
+#' view <- stomics_save_view(client, "STD0001", list(v = 1, g = list("Gfap")), title = "Astrocytes")
+#' view$url
+#' }
+stomics_save_view <- function(client, accession, state, sample_id = NULL, title = NULL) {
+  body <- Filter(Negate(is.null), list(accession = accession, state = state, sample_id = sample_id, title = title))
+  req <- httr2::req_body_json(.stomics_req(client, "/api/v1/views"), body)
+  .stomics_perform(req)
+}
+
+
+#' A dataset's saved views
+#'
+#' @inheritParams stomics_save_view
+#'
+#' @return A list of saved views, featured first, then the newest.
+#' @export
+stomics_list_views <- function(client, accession) {
+  .stomics_perform(.stomics_req(client, paste0("/api/v1/datasets/", accession, "/views")))[["items"]]
+}
+
+
+# Internal: GET a standard pipeline endpoint, dropping NULL parameters.
+.stomics_analysis <- function(client, accession, path, params) {
+  req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/analysis/standard", path))
+  params <- Filter(Negate(is.null), params)
+  if (length(params) > 0) req <- do.call(httr2::req_url_query, c(list(req), params))
+  .stomics_perform(req)
+}
+
+
+# Internal: a list of JSON objects as a data.frame with the given columns.
+.stomics_rows <- function(rows, columns) {
+  out <- lapply(columns, function(col) unlist(lapply(rows, function(r) r[[col]])))
+  names(out) <- columns
+  if (length(rows) == 0) out <- lapply(out, function(x) logical(0))
+  as.data.frame(out, stringsAsFactors = FALSE)
+}
+
+
 #' Every spot's value of one metadata field
 #'
 #' @param client A `stomics_client` object.

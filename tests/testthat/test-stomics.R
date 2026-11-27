@@ -1195,3 +1195,119 @@ test_that("stomics_download_aria2c_manifest repeats file_types in the query", {
   stomics_download_aria2c_manifest(client, "STD0001", dest, file_types = c("expression_matrix", "image"))
   expect_equal(readLines(dest)[1], "https://s3/a")
 })
+
+
+test_that("the standard pipeline's state, markers, dot plot and spatial genes", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  base <- "https://api.example.com/api/v1/datasets/STD0001/analysis/standard"
+
+  webmockr::stub_request("get", base) |>
+    webmockr::to_return(body = '{"status":"not_run"}', headers = list("Content-Type" = "application/json"), status = 200)
+  webmockr::stub_request("get", paste0(base, "?sample_id=4")) |>
+    webmockr::to_return(body = '{"status":"ready","resolutions":[1.0]}', headers = list("Content-Type" = "application/json"), status = 200)
+  webmockr::stub_request("get", uri_regex = paste0(base, "/markers\\?sample_id=4&resolution=0.6&cluster=0&limit=5$")) |>
+    webmockr::to_return(
+      body = '{"markers":[{"cluster":"0","rank":1,"gene":"Gfap","score":9,"log_fold_change":2,"pval_adj":0.001,"pct_in":0.9,"pct_out":0.1}]}',
+      headers = list("Content-Type" = "application/json"), status = 200
+    )
+  webmockr::stub_request("get", uri_regex = paste0(base, "/markers\\?resolution=1&limit=10$")) |>
+    webmockr::to_return(body = '{"markers":[]}', headers = list("Content-Type" = "application/json"), status = 200)
+  webmockr::stub_request("get", uri_regex = paste0(base, "/dotplot\\?resolution=1$")) |>
+    webmockr::to_return(
+      body = '{"genes":["Gfap","Mbp"],"clusters":["0","1"],"mean":[[2,0.1],[0,1.5]],"fraction":[[0.9,0.2],[0,0.8]]}',
+      headers = list("Content-Type" = "application/json"), status = 200
+    )
+  webmockr::stub_request("get", uri_regex = paste0(base, "/spatially-variable\\?sample_id=4&rank_by=sparkx&limit=20&offset=0$")) |>
+    webmockr::to_return(
+      body = '{"genes":[{"gene":"Pcp4","rank":1,"moran_i":0.7,"moran_rank":2,"sparkx_rank":1,"pval_adj":1e-9}]}',
+      headers = list("Content-Type" = "application/json"), status = 200
+    )
+
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  expect_equal(stomics_get_standard_analysis(client, "STD0001")$status, "not_run")
+  expect_equal(stomics_get_standard_analysis(client, "STD0001", sample_id = 4)$status, "ready")
+
+  markers <- stomics_get_markers(client, "STD0001", sample_id = 4, resolution = 0.6, cluster = "0", limit = 5)
+  expect_equal(markers$gene, "Gfap")
+  expect_equal(markers$pct_in, 0.9)
+  none <- stomics_get_markers(client, "STD0001")
+  expect_equal(nrow(none), 0)
+  expect_true("gene" %in% names(none))
+
+  dp <- stomics_get_dotplot(client, "STD0001")
+  expect_equal(dp$mean["Mbp", "1"], 1.5)
+  expect_equal(dp$fraction["Gfap", "0"], 0.9)
+
+  svgs <- stomics_get_spatially_variable_genes(client, "STD0001", sample_id = 4, rank_by = "sparkx", limit = 20)
+  expect_equal(svgs$gene, "Pcp4")
+  expect_equal(svgs$moran_i, 0.7)
+  expect_equal(svgs$sparkx_rank, 1)
+})
+
+
+test_that("stomics_download_h5ad follows the presigned link to a file", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/datasets/STD0001/analysis/standard/h5ad?sample_id=4") |>
+    webmockr::to_return(
+      body = '{"url":"https://s3.example.com/sample.h5ad","filename":"STD0001_sample_4.h5ad"}',
+      headers = list("Content-Type" = "application/json"), status = 200
+    )
+  skip_if_not_installed("mockery")
+  fetched <- NULL
+  mockery::stub(stomics_download_h5ad, "download.file", function(url, destfile, mode, quiet) {
+    fetched <<- url
+    writeLines("HDF", destfile)
+  })
+  dest <- withr::local_tempfile(fileext = ".h5ad")
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  expect_equal(stomics_download_h5ad(client, "STD0001", dest, sample_id = 4), dest)
+  expect_equal(fetched, "https://s3.example.com/sample.h5ad")
+  expect_true(file.exists(dest))
+})
+
+
+test_that("stomics_save_view and stomics_list_views", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  webmockr::stub_request("post", "https://api.example.com/api/v1/views") |>
+    webmockr::wi_th(body = list(accession = "STD0001", state = list(v = 1, g = list("Gfap")), title = "A")) |>
+    webmockr::to_return(body = '{"slug":"abc123","url":"https://stomics.io/v/abc123"}',
+                        headers = list("Content-Type" = "application/json"), status = 201)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/datasets/STD0001/views") |>
+    webmockr::to_return(body = '{"items":[{"slug":"abc123"}]}',
+                        headers = list("Content-Type" = "application/json"), status = 200)
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  view <- stomics_save_view(client, "STD0001", list(v = 1, g = list("Gfap")), title = "A")
+  expect_equal(view$slug, "abc123")
+  expect_equal(stomics_list_views(client, "STD0001")[[1]]$slug, "abc123")
+})
+
+
+test_that("stomics_get_spatial_stats", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/datasets/STD0001/analysis/spatial-stats?sample_id=4&layer=cell_type") |>
+    webmockr::to_return(body = '{"layer":"cell_type","labels":["T","B"]}', headers = list("Content-Type" = "application/json"), status = 200)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/datasets/STD0001/analysis/spatial-stats") |>
+    webmockr::to_return(body = '{"layer":"x","labels":[]}', headers = list("Content-Type" = "application/json"), status = 200)
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  expect_equal(stomics_get_spatial_stats(client, "STD0001", sample_id = 4, layer = "cell_type")$layer, "cell_type")
+  expect_equal(stomics_get_spatial_stats(client, "STD0001")$layer, "x")
+})
+
+
+test_that("stomics_portal_stats", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/stats/portal") |>
+    webmockr::to_return(body = '{"datasets":549}', headers = list("Content-Type" = "application/json"), status = 200)
+  client <- stomics_client(base_url = "https://api.example.com")
+  expect_equal(stomics_portal_stats(client)$datasets, 549)
+})
