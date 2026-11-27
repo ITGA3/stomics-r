@@ -1286,3 +1286,17 @@ test_that("stomics_save_view and stomics_list_views", {
   expect_equal(view$slug, "abc123")
   expect_equal(stomics_list_views(client, "STD0001")[[1]]$slug, "abc123")
 })
+
+
+test_that("stomics_get_spatial_stats", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/datasets/STD0001/analysis/spatial-stats?sample_id=4&layer=cell_type") |>
+    webmockr::to_return(body = '{"layer":"cell_type","labels":["T","B"]}', headers = list("Content-Type" = "application/json"), status = 200)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/datasets/STD0001/analysis/spatial-stats") |>
+    webmockr::to_return(body = '{"layer":"x","labels":[]}', headers = list("Content-Type" = "application/json"), status = 200)
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  expect_equal(stomics_get_spatial_stats(client, "STD0001", sample_id = 4, layer = "cell_type")$layer, "cell_type")
+  expect_equal(stomics_get_spatial_stats(client, "STD0001")$layer, "x")
+})

@@ -428,6 +428,25 @@ stomics_get_spatially_variable_genes <- function(client, accession, sample_id = 
 }
 
 
+#' Which labels sit together
+#'
+#' Neighbourhood enrichment, co-occurrence and Ripley's L of one labelled layer.
+#'
+#' @inheritParams stomics_get_standard_analysis
+#' @param layer The layer's key (optional; the first otherwise).
+#'
+#' @return A list: `labels`, `zscore` and `counts` (labels x labels),
+#'   `distances`, `cooccurrence[[a]][[b]]` (one value per distance) and
+#'   `ripley[[label]]`; `layers` lists every analysed layer.
+#' @export
+stomics_get_spatial_stats <- function(client, accession, sample_id = NULL, layer = NULL) {
+  req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/analysis/spatial-stats"))
+  params <- Filter(Negate(is.null), list(sample_id = sample_id, layer = layer))
+  if (length(params) > 0) req <- do.call(httr2::req_url_query, c(list(req), params))
+  .stomics_perform(req)
+}
+
+
 #' Download one sample as an .h5ad
 #'
 #' Raw counts in `X` (values as submitted when they were not counts), a
