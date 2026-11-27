@@ -397,16 +397,20 @@ stomics_get_dotplot <- function(client, accession, sample_id = NULL, resolution 
 }
 
 
-#' Genes ranked by Moran's I, precomputed on every spot
+#' Spatially variable genes by Moran's I and SPARK-X, on every spot
 #'
-#' The standard pipeline computes Moran's I for every gene over every spot,
-#' with no subsample. For an on-demand run with other parameters, see
-#' [stomics_spatially_variable_genes()].
+#' The standard pipeline computes Moran's I and SPARK-X for every gene over
+#' every spot. [stomics_spatially_variable_genes()] returns the top genes by
+#' Moran's I alone.
 #'
 #' @inheritParams stomics_get_standard_analysis
+#' @param rank_by `"consensus"` (the mean of the two ranks), `"moran"` or
+#'   `"sparkx"`.
 #' @param limit,offset A page of genes, best first.
 #'
-#' @return A `data.frame` with `gene`, `rank`, `moran_i` and `pval_adj`.
+#' @return A `data.frame` with `gene`, `rank` (consensus), `moran_i`,
+#'   `moran_rank`, `sparkx_rank` and `pval_adj` (SPARK-X's Benjamini-Hochberg
+#'   FDR).
 #' @export
 #'
 #' @examples
@@ -415,12 +419,12 @@ stomics_get_dotplot <- function(client, accession, sample_id = NULL, resolution 
 #' svgs <- stomics_get_spatially_variable_genes(client, "STD0001", sample_id = 12)
 #' }
 stomics_get_spatially_variable_genes <- function(client, accession, sample_id = NULL,
-                                                 limit = 50, offset = 0) {
+                                                 rank_by = "consensus", limit = 50, offset = 0) {
   data <- .stomics_analysis(
     client, accession, "/spatially-variable",
-    list(sample_id = sample_id, limit = limit, offset = offset)
+    list(sample_id = sample_id, rank_by = rank_by, limit = limit, offset = offset)
   )
-  .stomics_rows(data[["genes"]], c("gene", "rank", "moran_i", "pval_adj"))
+  .stomics_rows(data[["genes"]], c("gene", "rank", "moran_i", "moran_rank", "sparkx_rank", "pval_adj"))
 }
 
 

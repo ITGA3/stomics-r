@@ -1219,9 +1219,9 @@ test_that("the standard pipeline's state, markers, dot plot and spatial genes", 
       body = '{"genes":["Gfap","Mbp"],"clusters":["0","1"],"mean":[[2,0.1],[0,1.5]],"fraction":[[0.9,0.2],[0,0.8]]}',
       headers = list("Content-Type" = "application/json"), status = 200
     )
-  webmockr::stub_request("get", uri_regex = paste0(base, "/spatially-variable\\?sample_id=4&limit=20&offset=0$")) |>
+  webmockr::stub_request("get", uri_regex = paste0(base, "/spatially-variable\\?sample_id=4&rank_by=sparkx&limit=20&offset=0$")) |>
     webmockr::to_return(
-      body = '{"genes":[{"gene":"Pcp4","rank":1,"moran_i":0.7,"pval_adj":1e-9}]}',
+      body = '{"genes":[{"gene":"Pcp4","rank":1,"moran_i":0.7,"moran_rank":2,"sparkx_rank":1,"pval_adj":1e-9}]}',
       headers = list("Content-Type" = "application/json"), status = 200
     )
 
@@ -1240,7 +1240,8 @@ test_that("the standard pipeline's state, markers, dot plot and spatial genes", 
   expect_equal(dp$mean["Mbp", "1"], 1.5)
   expect_equal(dp$fraction["Gfap", "0"], 0.9)
 
-  svgs <- stomics_get_spatially_variable_genes(client, "STD0001", sample_id = 4, limit = 20)
+  svgs <- stomics_get_spatially_variable_genes(client, "STD0001", sample_id = 4, rank_by = "sparkx", limit = 20)
   expect_equal(svgs$gene, "Pcp4")
   expect_equal(svgs$moran_i, 0.7)
+  expect_equal(svgs$sparkx_rank, 1)
 })
