@@ -456,6 +456,44 @@ stomics_download_h5ad <- function(client, accession, dest, sample_id = NULL) {
 }
 
 
+#' Save a view of the spatial viewer
+#'
+#' A short link and an embed for a viewer state. Requires an API key.
+#'
+#' @param client A `stomics_client` object.
+#' @param accession Dataset accession number.
+#' @param state The viewer's state (version 1): a list with `g` genes (up to
+#'   four) and optionally `s` sample id, `c` colour mode, `m` metadata field,
+#'   `p` palette, `sc` colour range and `z` zoom.
+#' @param sample_id,title Optional.
+#'
+#' @return The saved view, as a list with `slug`, `url` and `embed_url`.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' client <- stomics_client(api_key = "sk-...")
+#' view <- stomics_save_view(client, "STD0001", list(v = 1, g = list("Gfap")), title = "Astrocytes")
+#' view$url
+#' }
+stomics_save_view <- function(client, accession, state, sample_id = NULL, title = NULL) {
+  body <- Filter(Negate(is.null), list(accession = accession, state = state, sample_id = sample_id, title = title))
+  req <- httr2::req_body_json(.stomics_req(client, "/api/v1/views"), body)
+  .stomics_perform(req)
+}
+
+
+#' A dataset's saved views
+#'
+#' @inheritParams stomics_save_view
+#'
+#' @return A list of saved views, featured first, then the newest.
+#' @export
+stomics_list_views <- function(client, accession) {
+  .stomics_perform(.stomics_req(client, paste0("/api/v1/datasets/", accession, "/views")))[["items"]]
+}
+
+
 # Internal: GET a standard pipeline endpoint, dropping NULL parameters.
 .stomics_analysis <- function(client, accession, path, params) {
   req <- .stomics_req(client, paste0("/api/v1/datasets/", accession, "/analysis/standard", path))

@@ -1268,3 +1268,21 @@ test_that("stomics_download_h5ad follows the presigned link to a file", {
   expect_equal(fetched, "https://s3.example.com/sample.h5ad")
   expect_true(file.exists(dest))
 })
+
+
+test_that("stomics_save_view and stomics_list_views", {
+  skip_if_not_installed("webmockr")
+  webmockr::enable(adapter = "httr2")
+  on.exit(webmockr::disable(), add = TRUE)
+  webmockr::stub_request("post", "https://api.example.com/api/v1/views") |>
+    webmockr::wi_th(body = list(accession = "STD0001", state = list(v = 1, g = list("Gfap")), title = "A")) |>
+    webmockr::to_return(body = '{"slug":"abc123","url":"https://stomics.io/v/abc123"}',
+                        headers = list("Content-Type" = "application/json"), status = 201)
+  webmockr::stub_request("get", "https://api.example.com/api/v1/datasets/STD0001/views") |>
+    webmockr::to_return(body = '{"items":[{"slug":"abc123"}]}',
+                        headers = list("Content-Type" = "application/json"), status = 200)
+  client <- stomics_client(api_key = "k", base_url = "https://api.example.com")
+  view <- stomics_save_view(client, "STD0001", list(v = 1, g = list("Gfap")), title = "A")
+  expect_equal(view$slug, "abc123")
+  expect_equal(stomics_list_views(client, "STD0001")[[1]]$slug, "abc123")
+})
